@@ -1,13 +1,40 @@
-use std::{collections::HashMap, io, num::ParseIntError};
+use std::{collections::HashMap, io, error::Error, fmt::Display};
 
-fn parse_card_numbers(card: &str) -> Result<Vec<u32>, ParseIntError> {
+#[derive(Debug)]
+struct ParsePaymentInfoError {
+    source: Option<Box<dyn Error>>,
+    msg: Option<String>,
+}
+
+impl Error for ParsePaymentInfoError {
+    fn source(&self) -> Option<&(dyn Error +'static)> {
+        self.source.as_deref()
+    }
+}
+
+impl Display for ParsePaymentInfoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Parsong payment error: invalid payment info")
+    }
+}
+
+fn parse_card_numbers(card: &str) -> Result<Vec<u32>, ParsePaymentInfoError> {
     let numbers = card
         .split_whitespace()
         .into_iter()
         .map(|s| {
             s.parse()
+            .map_err(|_| ParsePaymentInfoError 
+            {
+                source: None,
+                msg: Some(format!("{s:?} could not be parsed as u32"))
+            })
         })
-        .collect::<Result<Vec<u32>,_>>()?;
+        .collect::<Result<Vec<u32>,_>>()
+        .map_err(|e| ParsePaymentInfoError { 
+            source: Some(Box::new(e)), 
+            msg: Some(format!("Failed to parse input as numbers. Input: {card}")) 
+        })?;
 
     Ok(numbers)
 }
@@ -26,14 +53,18 @@ struct Card {
     cvv: u32
 }
 
-fn parse_card(card: &str) -> Result<Card, String> {
-    let mut numbers = parse_card_numbers(card)
-        .map_err(|e| e.to_string())?;
+fn parse_card(card: &str) -> Result<Card, ParsePaymentInfoError> {
+    let mut numbers = parse_card_numbers(card)?;
 
     let len = numbers.len();
     let expected_len = 4;
     if len!= expected_len {
-        return Err(format!("Expected {} numbers, got {}. Elements: {numbers:?}", expected_len, len));
+        return Err(
+            ParsePaymentInfoError { 
+                source: None,
+                msg: Some(format!("Expected {} numbers, got {}. Elements: {numbers:?}", expected_len, len)),
+            }
+        );
     }
 
     let cvv = numbers.pop().unwrap();
@@ -51,7 +82,7 @@ fn parse_card(card: &str) -> Result<Card, String> {
 #[derive(Debug)]
 enum CreditCardError {
     InvalidInput(String),
-    Other(String, String),
+    Other(Box<dyn Error>, String),
 }
 
 fn get_credit_card_info (
@@ -62,7 +93,9 @@ fn get_credit_card_info (
         .ok_or(CreditCardError::InvalidInput(format!("No credit card was found for {name}")))?;
 
     let card = parse_card(card_string)
-        .map_err(|e| CreditCardError::Other(e, format!("{name}'s could not be parsed.")))?;
+        .map_err(|e| 
+            CreditCardError::Other(Box::new(e), format!("{name}'s card could not be parsed."))
+        )?;
 
     Ok(card)
 }
